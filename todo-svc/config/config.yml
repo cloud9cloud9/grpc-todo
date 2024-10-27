@@ -1,0 +1,11 @@
+db:
+  user: ${POSTGRES_TODO_USER}
+  password: ${POSTGRES_TODO_PASSWORD}
+  database: ${POSTGRES_TODO_DB}
+  port: 5434
+  host: localhost
+  sslmode: disable
+  link: postgres://postgres:postgres@localhost:5434/todo-svc?sslmode=disable
+
+server:
+  port: ${PORT}

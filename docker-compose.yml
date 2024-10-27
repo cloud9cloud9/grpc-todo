@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  auth_db:
+    image: postgres:latest
+    container_name: auth_svc
+    environment:
+      POSTGRES_DB: ${POSTGRES_AUTH_DB}
+      POSTGRES_USER: ${POSTGRES_AUTH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+
+  todo_db:
+    image: postgres:latest
+    container_name: todo_svc
+    environment:
+      POSTGRES_DB: ${POSTGRES_TODO_DB}
+      POSTGRES_USER: ${POSTGRES_TODO_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_TODO_PASSWORD}
+    ports:
+      - "5434:5432"
+    volumes:
+      - todo_db_data:/var/lib/postgresql/data
+
+volumes:
+  auth_db_data:
+  todo_db_data:

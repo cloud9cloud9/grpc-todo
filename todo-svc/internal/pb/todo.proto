@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package todo;
+
+option go_package = ".";
+
+service TodoService {
+  rpc CreateTodoList (CreateTodoListRequest) returns (CreateTodoListResponse) {}
+  rpc GetTodoListById (GetTodoListRequest) returns (GetTodoListResponse) {}
+  rpc GetTodoLists (GetTodoListsRequest) returns (GetTodoListsResponse) {}
+  rpc UpdateTodoList (UpdateTodoListRequest) returns (UpdateTodoListResponse) {}
+  rpc DeleteTodoList (DeleteTodoListRequest) returns (DeleteTodoListResponse) {}
+  rpc CreateTodoItem (CreateTodoItemRequest) returns (CreateTodoItemResponse) {}
+  rpc GetTodoItemById (GetTodoItemRequest) returns (GetTodoItemResponse) {}
+  rpc GetTodoItems (GetTodoItemsRequest) returns (GetTodoItemsResponse) {}
+  rpc UpdateTodoItem (UpdateTodoItemRequest) returns (UpdateTodoItemResponse) {}
+  rpc DeleteTodoItem (DeleteTodoItemRequest) returns (DeleteTodoItemResponse) {}
+}
+
+message TodoItem {
+  int64 id = 1;
+  string title = 2;
+  string description = 3;
+  bool completed = 4;
+}
+
+message TodoList {
+  int64 id = 1;
+  string title = 2;
+  repeated TodoItem items = 3;
+}
+
+message CreateTodoListRequest {
+  int64 user_id = 1;
+  string title = 2;
+}
+
+message CreateTodoListResponse {
+  TodoList list = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message GetTodoListRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message GetTodoListResponse {
+  TodoList list = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message GetTodoListsRequest {
+  int64 user_id = 1;
+}
+
+message GetTodoListsResponse {
+  repeated TodoList lists = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message UpdateTodoListRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+  string title = 3;
+}
+
+message UpdateTodoListResponse {
+  TodoList list = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message DeleteTodoListRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message DeleteTodoListResponse {
+  bool success = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message CreateTodoItemRequest {
+  int64 user_id = 1;
+  int64 list_id = 2;
+  string title = 3;
+  string description = 4;
+}
+
+message CreateTodoItemResponse {
+  TodoItem item = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message GetTodoItemRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message GetTodoItemResponse {
+  TodoItem item = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message GetTodoItemsRequest {
+  int64 user_id = 1;
+  int64 list_id = 2;
+}
+
+message GetTodoItemsResponse {
+  repeated TodoItem items = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message UpdateTodoItemRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+  string title = 3;
+  string description = 4;
+  bool completed = 5;
+}
+
+message UpdateTodoItemResponse {
+  TodoItem item = 1;
+  int64 status = 2;
+  string error = 3;
+}
+
+message DeleteTodoItemRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message DeleteTodoItemResponse {
+  bool success = 1;
+  int64 status = 2;
+  string error = 3;
+}
