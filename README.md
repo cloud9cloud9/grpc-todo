@@ -1,7 +1,7 @@
 # protos-todo
 
 This project implements a microservices architecture consisting of three main components: **API Gateway**, **Auth Service**, and **Todo Service**.
-![Project Screenshot](todo.app.jpg)
+![Project Screenshot](todo.app.png)
 
 ## Architecture
 
