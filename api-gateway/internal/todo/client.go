@@ -12,12 +12,11 @@ type ServiceClient struct {
 }
 
 func InitServiceClient(cfg *config.Config) pb.TodoServiceClient {
-	log.Println("API Gateway - Todo Service Client initialized")
-
 	cc, err := grpc.Dial(cfg.TodoSuvURL, grpc.WithInsecure())
 	if err != nil {
 		log.Println("Could not connect:", err)
 	}
 
+	log.Println("API Gateway - Todo Service Client initialized")
 	return pb.NewTodoServiceClient(cc)
 }

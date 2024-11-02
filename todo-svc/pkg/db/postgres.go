@@ -9,11 +9,7 @@ import (
 	"log"
 )
 
-type Repository struct {
-	DB *gorm.DB
-}
-
-func ConnectToPostgreSQL(cfg *config.Config) Repository {
+func ConnectToPostgreSQL(cfg *config.Config) (db *gorm.DB) {
 	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.PostgresUser, cfg.Database.PostgresDB,
 		cfg.Database.PostgresPassword, cfg.Database.PostgresSSLMode)
@@ -33,7 +29,5 @@ func ConnectToPostgreSQL(cfg *config.Config) Repository {
 		log.Fatalf("Failed to migrate database. Error: %v", err)
 	}
 
-	return Repository{
-		DB: db,
-	}
+	return db
 }

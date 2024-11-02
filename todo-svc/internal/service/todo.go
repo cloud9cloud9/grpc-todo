@@ -4,7 +4,8 @@ import (
 	"context"
 	"github.com/cloud9cloud9/go-grpc-todo/todo-svc/internal/domain"
 	pb "github.com/cloud9cloud9/go-grpc-todo/todo-svc/internal/pb"
-	"github.com/cloud9cloud9/go-grpc-todo/todo-svc/pkg/db"
+	"github.com/cloud9cloud9/go-grpc-todo/todo-svc/internal/repository"
+	"github.com/cloud9cloud9/go-grpc-todo/todo-svc/pkg/utils"
 	"net/http"
 )
 
@@ -15,37 +16,17 @@ var (
 )
 
 type Server struct {
-	Repo db.Repository
+	ListRepo repository.TodoList
+	ItemRepo repository.TodoItem
 	pb.UnimplementedTodoServiceServer
+	Mapper utils.Mapper
 }
 
 func (s *Server) CreateTodoList(ctx context.Context, in *pb.CreateTodoListRequest) (*pb.CreateTodoListResponse, error) {
 	var list domain.TodoList
 	list.Title = in.Title
 
-	tx := s.Repo.DB.Begin()
-	if err := tx.Create(&list).Error; err != nil {
-		tx.Rollback()
-		return &pb.CreateTodoListResponse{
-			Status: http.StatusInternalServerError,
-			Error:  err.Error(),
-		}, nil
-	}
-
-	userList := domain.UsersList{
-		UserId: in.UserId,
-		ListId: list.Id,
-	}
-
-	if err := tx.Create(&userList).Error; err != nil {
-		tx.Rollback()
-		return &pb.CreateTodoListResponse{
-			Status: http.StatusInternalServerError,
-			Error:  err.Error(),
-		}, nil
-	}
-
-	if err := tx.Commit().Error; err != nil {
+	if err := s.ListRepo.Create(in.UserId, &list); err != nil {
 		return &pb.CreateTodoListResponse{
 			Status: http.StatusInternalServerError,
 			Error:  err.Error(),
@@ -62,17 +43,15 @@ func (s *Server) CreateTodoList(ctx context.Context, in *pb.CreateTodoListReques
 }
 
 func (s *Server) GetTodoListById(ctx context.Context, in *pb.GetTodoListRequest) (*pb.GetTodoListResponse, error) {
-	var list domain.TodoList
-
-	if result := s.Repo.DB.Where(&domain.TodoList{Id: in.Id}).First(&list); result.Error != nil {
+	list, err := s.ListRepo.GetById(in.Id)
+	if err != nil {
 		return &pb.GetTodoListResponse{
 			Status: http.StatusNotFound,
-			Error:  result.Error.Error(),
+			Error:  errListNotFound,
 		}, nil
 	}
 
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: list.Id}).First(&userList); result.Error != nil {
+	if s.ListRepo.CheckUserAccessToList(in.UserId, list.Id) != nil {
 		return &pb.GetTodoListResponse{
 			Status: http.StatusForbidden,
 			Error:  errForbidden,
@@ -89,25 +68,15 @@ func (s *Server) GetTodoListById(ctx context.Context, in *pb.GetTodoListRequest)
 }
 
 func (s *Server) GetTodoLists(ctx context.Context, in *pb.GetTodoListsRequest) (*pb.GetTodoListsResponse, error) {
-	var userLists []domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId}).Find(&userLists); result.Error != nil {
+	todoLists, err := s.ListRepo.GetAll(in.UserId)
+	if err != nil {
 		return &pb.GetTodoListsResponse{
 			Status: http.StatusNotFound,
 			Error:  errListNotFound,
 		}, nil
 	}
 
-	var lists []*pb.TodoList
-
-	for _, userList := range userLists {
-		var list domain.TodoList
-		if result := s.Repo.DB.Where(&domain.TodoList{Id: userList.ListId}).First(&list); result.Error == nil {
-			lists = append(lists, &pb.TodoList{
-				Id:    list.Id,
-				Title: list.Title,
-			})
-		}
-	}
+	lists := s.Mapper.FromDomainLists(todoLists)
 
 	return &pb.GetTodoListsResponse{
 		Lists:  lists,
@@ -116,28 +85,21 @@ func (s *Server) GetTodoLists(ctx context.Context, in *pb.GetTodoListsRequest) (
 }
 
 func (s *Server) UpdateTodoList(ctx context.Context, in *pb.UpdateTodoListRequest) (*pb.UpdateTodoListResponse, error) {
-	var list domain.TodoList
-	if result := s.Repo.DB.Where(&domain.TodoList{Id: in.Id}).First(&list); result.Error != nil {
-		return &pb.UpdateTodoListResponse{
-			Status: http.StatusNotFound,
-			Error:  errListNotFound,
-		}, nil
-	}
-
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: in.Id}).First(&userList); result.Error != nil {
-		return &pb.UpdateTodoListResponse{
-			Status: http.StatusForbidden,
-			Error:  errForbidden,
-		}, nil
-	}
-
-	list.Title = in.Title
-
-	if err := s.Repo.DB.Save(&list).Error; err != nil {
+	list, err := s.ListRepo.Update(in.Id, &domain.TodoList{
+		Title: in.Title,
+	})
+	if err != nil {
 		return &pb.UpdateTodoListResponse{
 			Status: http.StatusInternalServerError,
 			Error:  err.Error(),
+		}, nil
+	}
+
+	err = s.ListRepo.CheckUserAccessToList(in.UserId, in.Id)
+	if err != nil {
+		return &pb.UpdateTodoListResponse{
+			Status: http.StatusForbidden,
+			Error:  errForbidden,
 		}, nil
 	}
 
@@ -151,23 +113,7 @@ func (s *Server) UpdateTodoList(ctx context.Context, in *pb.UpdateTodoListReques
 }
 
 func (s *Server) DeleteTodoList(ctx context.Context, in *pb.DeleteTodoListRequest) (*pb.DeleteTodoListResponse, error) {
-	var list domain.TodoList
-	if result := s.Repo.DB.Where(&domain.TodoList{Id: in.Id}).First(&list); result.Error != nil {
-		return &pb.DeleteTodoListResponse{
-			Status: http.StatusNotFound,
-			Error:  errListNotFound,
-		}, nil
-	}
-
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: in.Id}).First(&userList); result.Error != nil {
-		return &pb.DeleteTodoListResponse{
-			Status: http.StatusForbidden,
-			Error:  errForbidden,
-		}, nil
-	}
-
-	if err := s.Repo.DB.Delete(&list).Error; err != nil {
+	if err := s.ListRepo.Delete(in.Id); err != nil {
 		return &pb.DeleteTodoListResponse{
 			Status: http.StatusInternalServerError,
 			Error:  err.Error(),
@@ -181,46 +127,22 @@ func (s *Server) DeleteTodoList(ctx context.Context, in *pb.DeleteTodoListReques
 }
 
 func (s *Server) CreateTodoItem(ctx context.Context, in *pb.CreateTodoItemRequest) (*pb.CreateTodoItemResponse, error) {
-	var list domain.TodoList
-
-	if result := s.Repo.DB.Where(&domain.TodoList{Id: in.ListId}).First(&list); result.Error != nil {
-		return &pb.CreateTodoItemResponse{
-			Item:   nil,
-			Status: http.StatusNotFound,
-			Error:  errListNotFound,
-		}, nil
-	}
-
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: in.ListId}).First(&userList); result.Error != nil {
+	if err := s.ListRepo.CheckUserAccessToList(in.UserId, in.ListId); err != nil {
 		return &pb.CreateTodoItemResponse{
 			Item:   nil,
 			Status: http.StatusForbidden,
-			Error:  errForbidden,
-		}, nil
-	}
-
-	item := domain.TodoItem{
-		Title:       in.Title,
-		Description: in.Description,
-		Done:        false,
-		ListId:      list.Id,
-	}
-
-	if err := s.Repo.DB.Create(&item).Error; err != nil {
-		return &pb.CreateTodoItemResponse{
-			Item:   nil,
-			Status: http.StatusInternalServerError,
 			Error:  err.Error(),
 		}, nil
 	}
 
-	listItem := domain.ListsItem{
-		ListId: list.Id,
-		ItemId: item.Id,
+	item := &domain.TodoItem{
+		Title:       in.Title,
+		Description: in.Description,
+		Done:        false,
+		ListId:      in.ListId,
 	}
 
-	if err := s.Repo.DB.Create(&listItem).Error; err != nil {
+	if err := s.ItemRepo.Create(item); err != nil {
 		return &pb.CreateTodoItemResponse{
 			Item:   nil,
 			Status: http.StatusInternalServerError,
@@ -239,9 +161,8 @@ func (s *Server) CreateTodoItem(ctx context.Context, in *pb.CreateTodoItemReques
 }
 
 func (s *Server) GetTodoItemById(ctx context.Context, in *pb.GetTodoItemRequest) (*pb.GetTodoItemResponse, error) {
-	var item domain.TodoItem
-
-	if result := s.Repo.DB.Where(&domain.TodoItem{Id: in.Id}).First(&item); result.Error != nil {
+	item, _, err := s.ItemRepo.GetById(in.Id)
+	if err != nil {
 		return &pb.GetTodoItemResponse{
 			Item:   nil,
 			Status: http.StatusNotFound,
@@ -249,22 +170,7 @@ func (s *Server) GetTodoItemById(ctx context.Context, in *pb.GetTodoItemRequest)
 		}, nil
 	}
 
-	var listItem domain.ListsItem
-	if result := s.Repo.DB.Where(&domain.ListsItem{ItemId: in.Id}).Find(&listItem); result.Error != nil {
-		return &pb.GetTodoItemResponse{
-			Item:   nil,
-			Status: http.StatusForbidden,
-			Error:  errItemNotFound,
-		}, nil
-	}
-
-	var userHasAccess bool
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: listItem.ListId}).First(&userList); result.Error == nil {
-		userHasAccess = true
-	}
-
-	if !userHasAccess {
+	if err := s.ListRepo.CheckUserAccessToList(in.UserId, item.ListId); err != nil {
 		return &pb.GetTodoItemResponse{
 			Item:   nil,
 			Status: http.StatusForbidden,
@@ -283,37 +189,22 @@ func (s *Server) GetTodoItemById(ctx context.Context, in *pb.GetTodoItemRequest)
 }
 
 func (s *Server) GetTodoItems(ctx context.Context, in *pb.GetTodoItemsRequest) (*pb.GetTodoItemsResponse, error) {
-	var userList domain.UsersList
-
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: in.ListId}).First(&userList); result.Error != nil {
+	if err := s.ListRepo.CheckUserAccessToList(in.UserId, in.ListId); err != nil {
 		return &pb.GetTodoItemsResponse{
-			Items:  nil,
 			Status: http.StatusForbidden,
 			Error:  errForbidden,
 		}, nil
 	}
 
-	var listItems []domain.ListsItem
-	if result := s.Repo.DB.Where(&domain.ListsItem{ListId: in.ListId}).Find(&listItems); result.Error != nil {
+	listItems, err := s.ItemRepo.GetAll(in.ListId)
+	if err != nil {
 		return &pb.GetTodoItemsResponse{
-			Items:  nil,
-			Status: http.StatusNotFound,
+			Status: http.StatusInternalServerError,
 			Error:  errItemNotFound,
 		}, nil
 	}
 
-	var items []*pb.TodoItem
-
-	for _, listItem := range listItems {
-		var item domain.TodoItem
-		if result := s.Repo.DB.Where(&domain.TodoItem{Id: listItem.ItemId}).First(&item); result.Error == nil {
-			items = append(items, &pb.TodoItem{
-				Id:          item.Id,
-				Title:       item.Title,
-				Description: item.Description,
-			})
-		}
-	}
+	items := s.Mapper.FromDomainItems(listItems)
 
 	return &pb.GetTodoItemsResponse{
 		Items:  items,
@@ -322,46 +213,28 @@ func (s *Server) GetTodoItems(ctx context.Context, in *pb.GetTodoItemsRequest) (
 }
 
 func (s *Server) UpdateTodoItem(ctx context.Context, in *pb.UpdateTodoItemRequest) (*pb.UpdateTodoItemResponse, error) {
-	var item domain.TodoItem
-
-	if result := s.Repo.DB.Where(&domain.TodoItem{Id: in.Id}).First(&item); result.Error != nil {
+	item, listId, err := s.ItemRepo.GetById(in.Id)
+	if err != nil {
 		return &pb.UpdateTodoItemResponse{
-			Item:   nil,
 			Status: http.StatusNotFound,
 			Error:  errItemNotFound,
 		}, nil
 	}
 
-	var listItem domain.ListsItem
-	if result := s.Repo.DB.Where(&domain.ListsItem{ItemId: item.Id}).First(&listItem); result.Error != nil {
+	if err := s.ListRepo.CheckUserAccessToList(in.UserId, listId); err != nil {
 		return &pb.UpdateTodoItemResponse{
-			Item:   nil,
-			Status: http.StatusForbidden,
-			Error:  errItemNotFound,
-		}, nil
-	}
-
-	var userHasAccess bool
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: listItem.ListId}).First(&userList); result.Error == nil {
-		userHasAccess = true
-	}
-
-	if !userHasAccess {
-		return &pb.UpdateTodoItemResponse{
-			Item:   nil,
 			Status: http.StatusForbidden,
 			Error:  errForbidden,
 		}, nil
 	}
 
+	item.Id = in.Id
 	item.Title = in.Title
 	item.Description = in.Description
 	item.Done = in.Completed
 
-	if err := s.Repo.DB.Save(&item).Error; err != nil {
+	if err := s.ItemRepo.Update(item); err != nil {
 		return &pb.UpdateTodoItemResponse{
-			Item:   nil,
 			Status: http.StatusInternalServerError,
 			Error:  err.Error(),
 		}, nil
@@ -378,9 +251,8 @@ func (s *Server) UpdateTodoItem(ctx context.Context, in *pb.UpdateTodoItemReques
 }
 
 func (s *Server) DeleteTodoItem(ctx context.Context, in *pb.DeleteTodoItemRequest) (*pb.DeleteTodoItemResponse, error) {
-	var item domain.TodoItem
-
-	if result := s.Repo.DB.Where(&domain.TodoItem{Id: in.Id}).First(&item); result.Error != nil {
+	item, listId, err := s.ItemRepo.GetById(in.Id)
+	if err != nil {
 		return &pb.DeleteTodoItemResponse{
 			Success: false,
 			Status:  http.StatusNotFound,
@@ -388,17 +260,7 @@ func (s *Server) DeleteTodoItem(ctx context.Context, in *pb.DeleteTodoItemReques
 		}, nil
 	}
 
-	var listItem domain.ListsItem
-	if result := s.Repo.DB.Where(&domain.ListsItem{ItemId: item.Id}).First(&listItem); result.Error != nil {
-		return &pb.DeleteTodoItemResponse{
-			Success: false,
-			Status:  http.StatusForbidden,
-			Error:   errItemNotFound,
-		}, nil
-	}
-
-	var userList domain.UsersList
-	if result := s.Repo.DB.Where(&domain.UsersList{UserId: in.UserId, ListId: listItem.ListId}).First(&userList); result.Error != nil {
+	if err := s.ListRepo.CheckUserAccessToList(in.UserId, listId); err != nil {
 		return &pb.DeleteTodoItemResponse{
 			Success: false,
 			Status:  http.StatusForbidden,
@@ -406,15 +268,7 @@ func (s *Server) DeleteTodoItem(ctx context.Context, in *pb.DeleteTodoItemReques
 		}, nil
 	}
 
-	if err := s.Repo.DB.Delete(&listItem).Error; err != nil {
-		return &pb.DeleteTodoItemResponse{
-			Success: false,
-			Status:  http.StatusInternalServerError,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	if err := s.Repo.DB.Delete(&item).Error; err != nil {
+	if err := s.ItemRepo.Delete(item.Id); err != nil {
 		return &pb.DeleteTodoItemResponse{
 			Success: false,
 			Status:  http.StatusInternalServerError,

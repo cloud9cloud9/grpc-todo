@@ -1,12 +1,15 @@
-package utils
+package security
 
 import (
 	"errors"
 	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/internal/domain"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
+	"time"
 )
-import "time"
+
+//go:generate mockgen -source=helper.go -destination=mocks/mock.go
 
 var (
 	tokenTTL                = 12 * time.Hour
@@ -22,7 +25,24 @@ type TokenClaims struct {
 	Email  string `json:"email"`
 }
 
-func GenerateToken(user domain.User) (string, error) {
+type AuthHelper interface {
+	CompareHashAndPassword(hashedPass string, password []byte) bool
+	GenerateToken(user *domain.User) (string, error)
+	HashPassword(password string) string
+	ValidateToken(token string) (claims *TokenClaims, err error)
+}
+
+type AuthUtil struct{}
+
+func NewAuthUtil() *AuthUtil {
+	return &AuthUtil{}
+}
+
+func (a *AuthUtil) CompareHashAndPassword(hashedPass string, password []byte) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPass), password)
+	return err == nil
+}
+func (a *AuthUtil) GenerateToken(user *domain.User) (string, error) {
 	claims := jwt.Claims(
 		&TokenClaims{
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -43,7 +63,13 @@ func GenerateToken(user domain.User) (string, error) {
 	return signedToken, nil
 }
 
-func ValidateToken(token string) (claims *TokenClaims, err error) {
+func (a *AuthUtil) HashPassword(password string) string {
+	hashBytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+
+	return string(hashBytes)
+}
+
+func (a *AuthUtil) ValidateToken(token string) (claims *TokenClaims, err error) {
 	parsedToken, err := jwt.ParseWithClaims(token, &TokenClaims{},
 		func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {

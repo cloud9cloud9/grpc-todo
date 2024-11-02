@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  run:
+    desc: "Run the todo-svc service"
+    cmds:
+      - "go run cmd/main.go"
+
+  proto:
+    desc: "Generate the proto files"
+    cmds:
+      - "protoc --go_out=internal/pb --go-grpc_out=internal/pb internal/pb/*.proto"
+
+  test:
+    desc: "Run the tests"
+    cmds:
+      - "go test -v ./..."

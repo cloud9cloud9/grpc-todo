@@ -24,6 +24,7 @@ func CreateTodoItem(ctx *gin.Context, client pb.TodoServiceClient) {
 
 	if err := ctx.BindJSON(&req); err != nil {
 		utils.NewErrorResponse(ctx, http.StatusBadRequest, invalidInputBody)
+		return
 	}
 
 	userID, err := auth.GetUserId(ctx)

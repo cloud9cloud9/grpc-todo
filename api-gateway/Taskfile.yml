@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  run:
+    desc: "Run the api-gateway service"
+    cmds:
+      - "go run cmd/main.go"
+
+  proto:
+    desc: "Generate the proto files"
+    cmds:
+      - "protoc --go_out=internal/auth/pb --go-grpc_out=internal/auth/pb internal/auth/pb/*.proto"
+      - "protoc --go_out=internal/todo/pb --go-grpc_out=internal/todo/pb internal/todo/pb/*.proto"
+
+  test:
+    desc: "Run the tests"
+    cmds:
+      - "go test -v ./..."

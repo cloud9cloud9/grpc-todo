@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/internal/domain"
 	pb "github.com/cloud9cloud9/go-grpc-todo/auth-svc/internal/pb"
-	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/pkg/db"
-	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/pkg/utils"
+	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/internal/repository"
+	"github.com/cloud9cloud9/go-grpc-todo/auth-svc/internal/security"
 	"net/http"
 )
 
@@ -16,28 +16,28 @@ var (
 )
 
 type Server struct {
-	Repo db.Repository
+	Repo       repository.UserRepository
+	AuthHelper security.AuthHelper
 	pb.UnimplementedAuthServiceServer
 }
 
 func (s *Server) Login(ctx context.Context, in *pb.LoginRequest) (*pb.LoginResponse, error) {
-	var user domain.User
-
-	if result := s.Repo.DB.Where(&domain.User{Email: in.Email}).First(&user); result.Error != nil {
+	user, err := s.Repo.FindByEmail(in.Email)
+	if err != nil {
 		return &pb.LoginResponse{
 			Status: http.StatusNotFound,
 			Error:  ErrUserNotFound,
 		}, nil
 	}
 
-	if !utils.CompareHashAndPassword(user.Password, []byte(in.Password)) {
+	if !s.AuthHelper.CompareHashAndPassword(user.Password, []byte(in.Password)) {
 		return &pb.LoginResponse{
 			Status: http.StatusNotFound,
 			Error:  ErrWrongPass,
 		}, nil
 	}
 
-	token, err := utils.GenerateToken(user)
+	token, err := s.AuthHelper.GenerateToken(user)
 	if err != nil {
 		return &pb.LoginResponse{
 			Status: http.StatusInternalServerError,
@@ -52,19 +52,26 @@ func (s *Server) Login(ctx context.Context, in *pb.LoginRequest) (*pb.LoginRespo
 }
 
 func (s *Server) Register(ctx context.Context, in *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	var user domain.User
-
-	if result := s.Repo.DB.Where(&domain.User{Email: in.Email}).First(&user); result.Error == nil {
+	user, err := s.Repo.FindByEmail(in.Email)
+	if err == nil && user != nil {
 		return &pb.RegisterResponse{
 			Status: http.StatusConflict,
 			Error:  ErrEmailExists,
 		}, nil
 	}
 
-	user.Email = in.Email
-	user.Password = utils.HashPassword(in.Password)
+	user = &domain.User{
+		Email:    in.Email,
+		Password: s.AuthHelper.HashPassword(in.Password),
+	}
 
-	s.Repo.DB.Create(&user)
+	err = s.Repo.CreateUser(user)
+	if err != nil {
+		return &pb.RegisterResponse{
+			Status: http.StatusInternalServerError,
+			Error:  err.Error(),
+		}, nil
+	}
 
 	return &pb.RegisterResponse{
 		Status: http.StatusCreated,
@@ -72,9 +79,7 @@ func (s *Server) Register(ctx context.Context, in *pb.RegisterRequest) (*pb.Regi
 }
 
 func (s *Server) Validate(ctx context.Context, in *pb.ValidateRequest) (*pb.ValidateResponse, error) {
-	var user domain.User
-
-	claims, err := utils.ValidateToken(in.Token)
+	claims, err := s.AuthHelper.ValidateToken(in.Token)
 	if err != nil {
 		return &pb.ValidateResponse{
 			Status: http.StatusUnauthorized,
@@ -82,7 +87,8 @@ func (s *Server) Validate(ctx context.Context, in *pb.ValidateRequest) (*pb.Vali
 		}, nil
 	}
 
-	if result := s.Repo.DB.Where(&domain.User{Id: claims.UserId}).First(&user); result.Error != nil {
+	user, err := s.Repo.FindByID(claims.UserId)
+	if err != nil {
 		return &pb.ValidateResponse{
 			Status: http.StatusNotFound,
 			Error:  ErrUserNotFound,

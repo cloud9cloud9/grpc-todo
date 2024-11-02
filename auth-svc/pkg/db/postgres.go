@@ -9,10 +9,9 @@ import (
 )
 
 type Repository struct {
-	DB *gorm.DB
 }
 
-func ConnectToPostgreSQL(cfg *config.Config) Repository {
+func ConnectToPostgreSQL(cfg *config.Config) (db *gorm.DB) {
 	dsn := cfg.UrlDB
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
@@ -27,7 +26,5 @@ func ConnectToPostgreSQL(cfg *config.Config) Repository {
 		log.Fatalf("Failed to migrate database. Error: %v", err)
 	}
 
-	return Repository{
-		DB: db,
-	}
+	return db
 }
